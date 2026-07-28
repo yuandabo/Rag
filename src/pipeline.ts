@@ -27,7 +27,7 @@ export async function extract(input: string, config: ExtractionConfig): Promise<
   }
 }
 
-export async function ingest(input: string, config: AppConfig): Promise<void> {
+export async function ingest(input: string, config: AppConfig): Promise<Array<{ file: string; chunks: number; pages: number }>> {
   const files = await resolvePdfFiles(input);
   if (files.length === 0) throw new Error(`No PDF files found at ${path.resolve(input)}`);
 
@@ -35,6 +35,7 @@ export async function ingest(input: string, config: AppConfig): Promise<void> {
   const store = new VectorStore(config.lanceDbPath, config.embeddingDimensions);
   console.log(`Opening LanceDB at ${path.resolve(config.lanceDbPath)}...`);
   await store.initialize();
+  const summary: Array<{ file: string; chunks: number; pages: number }> = [];
   try {
     for (const [fileIndex, file] of files.entries()) {
       console.log(`[${fileIndex + 1}/${files.length}] Parsing ${file}`);
@@ -49,13 +50,15 @@ export async function ingest(input: string, config: AppConfig): Promise<void> {
       }
       await store.saveDocument(document, chunks, vectors, config.embeddingModel);
       console.log(`  Stored ${chunks.length} chunks (${document.pageCount} pages)`);
+      summary.push({ file: document.fileName, chunks: chunks.length, pages: document.pageCount });
     }
   } finally {
     await store.close();
   }
+  return summary;
 }
 
-export async function search(query: string, limit: number, config: AppConfig): Promise<void> {
+export async function search(query: string, limit: number, config: AppConfig) {
   const embeddings = createEmbeddingService(config);
   const store = new VectorStore(config.lanceDbPath, config.embeddingDimensions);
   console.log(`Opening LanceDB at ${path.resolve(config.lanceDbPath)}...`);
@@ -65,12 +68,13 @@ export async function search(query: string, limit: number, config: AppConfig): P
     if (!vector) throw new Error("Embedding API returned no vector");
     const results = await store.search(vector, limit);
     console.log(JSON.stringify(results, null, 2));
+    return results;
   } finally {
     await store.close();
   }
 }
 
-export async function ask(question: string, limit: number, config: AppConfig): Promise<void> {
+export async function ask(question: string, limit: number, config: AppConfig) {
   const embeddings = createEmbeddingService(config);
   const store = new VectorStore(config.lanceDbPath, config.embeddingDimensions);
   console.log(`Opening LanceDB at ${path.resolve(config.lanceDbPath)}...`);
@@ -88,7 +92,19 @@ export async function ask(question: string, limit: number, config: AppConfig): P
       baseUrl: config.openAiBaseUrl,
       model: config.openAiChatModel
     });
-    console.log(await chat.answer(question, context));
+    const answer = await chat.answer(question, context);
+    console.log(answer);
+    return { answer, sources: results };
+  } finally {
+    await store.close();
+  }
+}
+
+export async function inspect(limit: number, includeVectors: boolean, config: AppConfig): Promise<void> {
+  const store = new VectorStore(config.lanceDbPath, config.embeddingDimensions);
+  await store.initialize();
+  try {
+    console.log(JSON.stringify(await store.inspect(limit, includeVectors), null, 2));
   } finally {
     await store.close();
   }

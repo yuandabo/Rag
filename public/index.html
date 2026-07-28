@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG 知识库</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">R</span><span>RAG 知识库</span></div>
+    <div class="status"><span class="status-dot"></span><span>Ollama · bge-m3</span></div>
+  </header>
+  <main class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-head"><h2>知识库</h2><button id="refreshButton" class="icon-button" title="刷新">↻</button></div>
+      <div class="metrics">
+        <div><strong id="documentCount">—</strong><span>文档</span></div>
+        <div><strong id="chunkCount">—</strong><span>切片</span></div>
+      </div>
+      <label class="upload" id="uploadZone">
+        <input id="fileInput" type="file" accept="application/pdf,.pdf">
+        <span class="upload-icon">＋</span>
+        <strong>添加 PDF</strong>
+        <small>上传后自动解析并建立索引</small>
+      </label>
+      <div id="uploadProgress" class="progress hidden"><span></span><p>正在解析与生成向量…</p></div>
+      <h3>已入库文档</h3>
+      <div id="documentList" class="document-list"><div class="skeleton"></div></div>
+    </aside>
+    <section class="main-panel">
+      <nav class="tabs">
+        <button class="tab active" data-mode="ask">知识问答</button>
+        <button class="tab" data-mode="search">语义搜索</button>
+      </nav>
+      <div id="emptyState" class="empty-state">
+        <div class="empty-symbol">⌕</div>
+        <h1>从知识库中获取答案</h1>
+        <p>输入问题，系统会检索最相关的文档片段并给出有出处的回答。</p>
+        <div class="suggestions">
+          <button>这个电阻的额定功率是多少？</button>
+          <button>不同型号的工作电压有什么区别？</button>
+        </div>
+      </div>
+      <div id="conversation" class="conversation hidden"></div>
+      <form id="queryForm" class="composer">
+        <textarea id="queryInput" rows="1" placeholder="向知识库提问…"></textarea>
+        <button id="sendButton" class="send-button" type="submit" title="发送">↑</button>
+      </form>
+    </section>
+    <aside class="source-panel">
+      <div class="source-head"><h2>引用来源</h2><span id="sourceCount">0</span></div>
+      <div id="sourceList" class="source-list"><p class="source-empty">问答或搜索后，相关文档片段会显示在这里。</p></div>
+    </aside>
+  </main>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

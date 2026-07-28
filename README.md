@@ -20,6 +20,16 @@ npm install
 cp .env.example .env
 ```
 
+## Web 页面
+
+启动知识库工作台：
+
+```bash
+npm run web
+```
+
+浏览器打开 `http://127.0.0.1:3000`。页面支持 PDF 上传入库、知识库概览、语义搜索、RAG 问答和引用来源查看。
+
 Windows PowerShell 复制配置：
 
 ```powershell
@@ -74,6 +84,13 @@ npm run dev -- ask "这个电阻的额定功率是多少？" --limit 5
 ```
 
 `ingest` 和 `search` 使用 Ollama 本地 Embedding；`ask` 先用 Ollama + LanceDB 检索，再把命中的文本交给 `OPENAI_BASE_URL` 对应的 `/chat/completions`。因此中转站不需要支持 Embedding。
+
+查看 LanceDB 中已存的文档和 chunks（不调用 Ollama）：
+
+```bash
+npm run dev -- inspect --limit 10
+npm run dev -- inspect --limit 5 --vectors
+```
 
 检索结果以 JSON 输出，包含相似度分数、原文、来源路径和页码范围，可直接接到 RAG 的上下文组装阶段。
 

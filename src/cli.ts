@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import { ZodError } from "zod";
 import { loadConfig, loadExtractionConfig } from "./config.js";
-import { ask, extract, ingest, search } from "./pipeline.js";
+import { ask, extract, ingest, inspect, search } from "./pipeline.js";
 
 const program = new Command()
   .name("rag-pipeline")
@@ -19,7 +19,9 @@ program
   .command("ingest")
   .description("Parse and ingest one PDF or a directory of PDFs")
   .argument("<path>", "PDF file or directory")
-  .action(async (input: string) => ingest(input, loadConfig()));
+  .action(async (input: string) => {
+    await ingest(input, loadConfig());
+  });
 
 program
   .command("search")
@@ -41,6 +43,17 @@ program
     const limit = Number.parseInt(options.limit, 10);
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error("limit must be between 1 and 20");
     await ask(question, limit, loadConfig());
+  });
+
+program
+  .command("inspect")
+  .description("Inspect documents and chunks stored in LanceDB")
+  .option("-k, --limit <number>", "Number of chunks to display", "10")
+  .option("--vectors", "Show the first 8 values of each embedding")
+  .action(async (options: { limit: string; vectors?: boolean }) => {
+    const limit = Number.parseInt(options.limit, 10);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("limit must be between 1 and 100");
+    await inspect(limit, Boolean(options.vectors), loadConfig());
   });
 
 program.parseAsync().catch((error: unknown) => {

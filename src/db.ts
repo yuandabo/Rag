@@ -107,6 +107,49 @@ export class VectorStore {
     }));
   }
 
+  async inspect(limit: number, includeVectors: boolean): Promise<Record<string, unknown>> {
+    if (!this.connection) throw new Error("Vector store is not initialized");
+    const tableNames = await this.connection.tableNames();
+    if (!tableNames.includes(TABLE_NAME)) {
+      return { databasePath: path.resolve(this.databasePath), table: TABLE_NAME, totalChunks: 0, documents: [], chunks: [] };
+    }
+    const table = await this.connection.openTable(TABLE_NAME);
+    const totalChunks = await table.countRows();
+    const rows = await table.query().limit(limit).toArray() as Array<Record<string, unknown>>;
+    const documents = new Map<string, { sourcePath: string; title: string; pageCount: number; chunks: number }>();
+    const allRows = await table.query().select(["sourcePath", "title", "pageCount"]).toArray() as Array<Record<string, unknown>>;
+    for (const row of allRows) {
+      const sourcePath = String(row.sourcePath);
+      const document = documents.get(sourcePath);
+      if (document) document.chunks += 1;
+      else documents.set(sourcePath, {
+        sourcePath,
+        title: String(row.title),
+        pageCount: Number(row.pageCount),
+        chunks: 1
+      });
+    }
+    return {
+      databasePath: path.resolve(this.databasePath),
+      table: TABLE_NAME,
+      totalChunks,
+      documents: [...documents.values()],
+      chunks: rows.map((row) => {
+        const vector = Array.from(row.vector as Iterable<number>);
+        return {
+          chunkIndex: Number(row.chunkIndex),
+          fileName: String(row.fileName),
+          pages: `${row.pageStart}-${row.pageEnd}`,
+          tokenEstimate: Number(row.tokenEstimate),
+          embeddingModel: String(row.embeddingModel),
+          dimensions: vector.length,
+          vectorPreview: includeVectors ? vector.slice(0, 8) : undefined,
+          contentPreview: String(row.content).slice(0, 240)
+        };
+      })
+    };
+  }
+
   async close(): Promise<void> {
     this.connection = undefined;
   }
