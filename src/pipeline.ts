@@ -32,8 +32,8 @@ export async function ingest(input: string, config: AppConfig): Promise<void> {
   if (files.length === 0) throw new Error(`No PDF files found at ${path.resolve(input)}`);
 
   const embeddings = createEmbeddingService(config);
-  const store = new VectorStore(config.databaseUrl, config.embeddingDimensions);
-  console.log("Connecting to PostgreSQL...");
+  const store = new VectorStore(config.lanceDbPath, config.embeddingDimensions);
+  console.log(`Opening LanceDB at ${path.resolve(config.lanceDbPath)}...`);
   await store.initialize();
   try {
     for (const [fileIndex, file] of files.entries()) {
@@ -57,8 +57,8 @@ export async function ingest(input: string, config: AppConfig): Promise<void> {
 
 export async function search(query: string, limit: number, config: AppConfig): Promise<void> {
   const embeddings = createEmbeddingService(config);
-  const store = new VectorStore(config.databaseUrl, config.embeddingDimensions);
-  console.log("Connecting to PostgreSQL...");
+  const store = new VectorStore(config.lanceDbPath, config.embeddingDimensions);
+  console.log(`Opening LanceDB at ${path.resolve(config.lanceDbPath)}...`);
   await store.initialize();
   try {
     const [vector] = await embeddings.embed([query]);
@@ -72,8 +72,8 @@ export async function search(query: string, limit: number, config: AppConfig): P
 
 export async function ask(question: string, limit: number, config: AppConfig): Promise<void> {
   const embeddings = createEmbeddingService(config);
-  const store = new VectorStore(config.databaseUrl, config.embeddingDimensions);
-  console.log("Connecting to PostgreSQL...");
+  const store = new VectorStore(config.lanceDbPath, config.embeddingDimensions);
+  console.log(`Opening LanceDB at ${path.resolve(config.lanceDbPath)}...`);
   await store.initialize();
   try {
     const [vector] = await embeddings.embed([question]);

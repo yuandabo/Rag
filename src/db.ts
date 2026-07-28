@@ -1,66 +1,40 @@
-import pg from "pg";
+import path from "node:path";
+import * as lancedb from "@lancedb/lancedb";
+import type { Table } from "@lancedb/lancedb";
 import type { DocumentChunk, ParsedDocument, SearchResult } from "./types.js";
 
-const { Pool } = pg;
+const TABLE_NAME = "rag_chunks";
 
-function vectorLiteral(values: number[]): string {
-  return `[${values.join(",")}]`;
+interface ChunkRow {
+  [key: string]: unknown;
+  id: string;
+  documentId: string;
+  sourcePath: string;
+  fileName: string;
+  title: string;
+  contentHash: string;
+  pageCount: number;
+  chunkIndex: number;
+  content: string;
+  tokenEstimate: number;
+  pageStart: number;
+  pageEnd: number;
+  metadata: string;
+  embeddingModel: string;
+  vector: number[];
+}
+
+function escapeSqlString(value: string): string {
+  return value.replace(/'/g, "''");
 }
 
 export class VectorStore {
-  private readonly pool: pg.Pool;
+  private connection?: lancedb.Connection;
 
-  constructor(databaseUrl: string, private readonly dimensions: number) {
-    this.pool = new Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 5000, query_timeout: 15000 });
-  }
+  constructor(private readonly databasePath: string, private readonly dimensions: number) {}
 
   async initialize(): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("CREATE EXTENSION IF NOT EXISTS vector");
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS rag_documents (
-          id uuid PRIMARY KEY,
-          source_path text NOT NULL UNIQUE,
-          file_name text NOT NULL,
-          title text NOT NULL,
-          content_hash text NOT NULL,
-          page_count integer NOT NULL,
-          metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-          created_at timestamptz NOT NULL DEFAULT now(),
-          updated_at timestamptz NOT NULL DEFAULT now()
-        )
-      `);
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS rag_chunks (
-          id uuid PRIMARY KEY,
-          document_id uuid NOT NULL REFERENCES rag_documents(id) ON DELETE CASCADE,
-          chunk_index integer NOT NULL,
-          content text NOT NULL,
-          token_estimate integer NOT NULL,
-          page_start integer NOT NULL,
-          page_end integer NOT NULL,
-          metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-          embedding_model text NOT NULL,
-          embedding vector(${this.dimensions}) NOT NULL,
-          created_at timestamptz NOT NULL DEFAULT now(),
-          UNIQUE(document_id, chunk_index)
-        )
-      `);
-      const dimension = await client.query<{ dimensions: number }>(
-        "SELECT atttypmod AS dimensions FROM pg_attribute WHERE attrelid = 'rag_chunks'::regclass AND attname = 'embedding'"
-      );
-      if (dimension.rows[0]?.dimensions !== this.dimensions) {
-        throw new Error(`Database embedding dimension is ${dimension.rows[0]?.dimensions}, configured value is ${this.dimensions}`);
-      }
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS rag_chunks_embedding_hnsw_idx
-        ON rag_chunks USING hnsw (embedding vector_cosine_ops)
-      `);
-      await client.query("CREATE INDEX IF NOT EXISTS rag_chunks_document_idx ON rag_chunks(document_id)");
-    } finally {
-      client.release();
-    }
+    this.connection = await lancedb.connect(path.resolve(this.databasePath));
   }
 
   async saveDocument(
@@ -70,59 +44,81 @@ export class VectorStore {
     embeddingModel: string
   ): Promise<void> {
     if (chunks.length !== embeddings.length) throw new Error("Chunk and embedding counts do not match");
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const existing = await client.query<{ id: string }>(
-        "SELECT id FROM rag_documents WHERE source_path = $1 FOR UPDATE",
-        [document.sourcePath]
-      );
-      const documentId = existing.rows[0]?.id ?? document.id;
-      await client.query(
-        `INSERT INTO rag_documents (id, source_path, file_name, title, content_hash, page_count, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (source_path) DO UPDATE SET
-           file_name = EXCLUDED.file_name, title = EXCLUDED.title,
-           content_hash = EXCLUDED.content_hash, page_count = EXCLUDED.page_count,
-           metadata = EXCLUDED.metadata, updated_at = now()`,
-        [documentId, document.sourcePath, document.fileName, document.title, document.contentHash, document.pageCount, document.metadata]
-      );
-      await client.query("DELETE FROM rag_chunks WHERE document_id = $1", [documentId]);
-      for (let index = 0; index < chunks.length; index++) {
-        const chunk = chunks[index];
-        const embedding = embeddings[index];
-        if (!chunk || !embedding) throw new Error(`Missing chunk or embedding at index ${index}`);
-        await client.query(
-          `INSERT INTO rag_chunks
-           (id, document_id, chunk_index, content, token_estimate, page_start, page_end, metadata, embedding_model, embedding)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector)`,
-          [chunk.id, documentId, chunk.index, chunk.content, chunk.tokenEstimate, chunk.pageStart, chunk.pageEnd, chunk.metadata, embeddingModel, vectorLiteral(embedding)]
-        );
+    if (!this.connection) throw new Error("Vector store is not initialized");
+    const rows = chunks.map((chunk, index): ChunkRow => {
+      const vector = embeddings[index];
+      if (!vector) throw new Error(`Missing embedding at index ${index}`);
+      if (vector.length !== this.dimensions) {
+        throw new Error(`Embedding dimension is ${vector.length}, configured value is ${this.dimensions}`);
       }
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
+      return {
+        id: chunk.id,
+        documentId: document.id,
+        sourcePath: document.sourcePath,
+        fileName: document.fileName,
+        title: document.title,
+        contentHash: document.contentHash,
+        pageCount: document.pageCount,
+        chunkIndex: chunk.index,
+        content: chunk.content,
+        tokenEstimate: chunk.tokenEstimate,
+        pageStart: chunk.pageStart,
+        pageEnd: chunk.pageEnd,
+        metadata: JSON.stringify({ ...document.metadata, ...chunk.metadata }),
+        embeddingModel,
+        vector
+      };
+    });
+    if (rows.length === 0) throw new Error("Document produced no chunks");
+
+    const tableNames = await this.connection.tableNames();
+    if (!tableNames.includes(TABLE_NAME)) {
+      await this.connection.createTable(TABLE_NAME, rows);
+      return;
     }
+    const table = await this.connection.openTable(TABLE_NAME);
+    await this.assertDimensions(table);
+    await table.delete(`sourcePath = '${escapeSqlString(document.sourcePath)}'`);
+    await table.add(rows);
   }
 
   async search(embedding: number[], limit: number): Promise<SearchResult[]> {
-    const result = await this.pool.query<SearchResult>(
-      `SELECT c.content, 1 - (c.embedding <=> $1::vector) AS score,
-              d.source_path AS "sourcePath", d.title,
-              c.page_start AS "pageStart", c.page_end AS "pageEnd", c.metadata
-       FROM rag_chunks c
-       JOIN rag_documents d ON d.id = c.document_id
-       ORDER BY c.embedding <=> $1::vector
-       LIMIT $2`,
-      [vectorLiteral(embedding), limit]
-    );
-    return result.rows.map((row) => ({ ...row, score: Number(row.score) }));
+    if (!this.connection) throw new Error("Vector store is not initialized");
+    if (embedding.length !== this.dimensions) {
+      throw new Error(`Query embedding dimension is ${embedding.length}, configured value is ${this.dimensions}`);
+    }
+    const tableNames = await this.connection.tableNames();
+    if (!tableNames.includes(TABLE_NAME)) return [];
+    const table = await this.connection.openTable(TABLE_NAME);
+    await this.assertDimensions(table);
+    const rows = await table.query()
+      .nearestTo(embedding)
+      .distanceType("cosine")
+      .limit(limit)
+      .toArray() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      content: String(row.content),
+      score: 1 - Number(row._distance),
+      sourcePath: String(row.sourcePath),
+      title: String(row.title),
+      pageStart: Number(row.pageStart),
+      pageEnd: Number(row.pageEnd),
+      metadata: JSON.parse(String(row.metadata)) as Record<string, unknown>
+    }));
   }
 
   async close(): Promise<void> {
-    await this.pool.end();
+    this.connection = undefined;
+  }
+
+  private async assertDimensions(table: Table): Promise<void> {
+    const sample = await table.query().select(["vector"]).limit(1).toArray() as Array<{ vector?: number[] }>;
+    const storedDimensions = sample[0]?.vector?.length;
+    if (storedDimensions !== undefined && storedDimensions !== this.dimensions) {
+      throw new Error(
+        `LanceDB embedding dimension is ${storedDimensions}, configured value is ${this.dimensions}. ` +
+        `Delete ${path.resolve(this.databasePath)} before switching embedding models.`
+      );
+    }
   }
 }

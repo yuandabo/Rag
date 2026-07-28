@@ -9,10 +9,10 @@ const schema = z.object({
   OLLAMA_BASE_URL: z.string().url().default("http://localhost:11434"),
   EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   EMBEDDING_DIMENSIONS: z.coerce.number().int().min(1).max(2000).default(1536),
-  DATABASE_URL: z.string().min(1).default("postgresql://postgres:postgres@localhost:5432/rag"),
+  LANCEDB_PATH: z.string().default("data/lancedb"),
   CHUNK_SIZE: z.coerce.number().int().min(100).default(1000),
   CHUNK_OVERLAP: z.coerce.number().int().min(0).default(150),
-  EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(2048).default(64),
+  EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(2048).optional(),
   OUTPUT_DIR: z.string().default("output")
 }).superRefine((config, context) => {
   if (config.EMBEDDING_PROVIDER === "openai" && !config.OPENAI_API_KEY) {
@@ -56,10 +56,10 @@ export function loadConfig() {
     ollamaBaseUrl: config.OLLAMA_BASE_URL,
     embeddingModel: config.EMBEDDING_MODEL,
     embeddingDimensions: config.EMBEDDING_DIMENSIONS,
-    databaseUrl: config.DATABASE_URL,
+    lanceDbPath: config.LANCEDB_PATH,
     chunkSize: config.CHUNK_SIZE,
     chunkOverlap: config.CHUNK_OVERLAP,
-    embeddingBatchSize: config.EMBEDDING_BATCH_SIZE,
+    embeddingBatchSize: config.EMBEDDING_BATCH_SIZE ?? (config.EMBEDDING_PROVIDER === "ollama" ? 1 : 64),
     outputDir: config.OUTPUT_DIR
   };
 }

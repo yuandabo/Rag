@@ -6,7 +6,7 @@ import { ask, extract, ingest, search } from "./pipeline.js";
 
 const program = new Command()
   .name("rag-pipeline")
-  .description("PDF knowledge-base ingestion pipeline for pgvector")
+  .description("PDF knowledge-base ingestion pipeline for LanceDB")
   .version("1.0.0");
 
 program
@@ -34,7 +34,7 @@ program
 
 program
   .command("ask")
-  .description("Retrieve pgvector context and answer through the chat relay")
+  .description("Retrieve LanceDB context and answer through the chat relay")
   .argument("<question>", "Natural-language question")
   .option("-k, --limit <number>", "Number of context chunks", "5")
   .action(async (question: string, options: { limit: string }) => {

@@ -3,22 +3,20 @@
 一个用于构建 RAG 知识库的 Node.js / TypeScript 小项目：
 
 ```text
-PDF -> Markdown + JSON -> Chunk -> OpenAI-compatible Embedding -> PostgreSQL/pgvector
+PDF -> Markdown + JSON -> Chunk -> Ollama Embedding -> LanceDB
 ```
 
-支持单个 PDF 或目录批量导入、保留中间产物、重复导入覆盖、HNSW 向量索引，以及命令行语义检索。
+支持单个 PDF 或目录批量导入、保留中间产物、重复导入覆盖、本地文件向量存储，以及命令行语义检索。
 
 ## 环境要求
 
 - Node.js 20+
-- Docker（用于本地 PostgreSQL + pgvector）
 - Ollama 本地模型，或 OpenAI/兼容 Embeddings API
 
 ## 快速开始
 
 ```bash
 npm install
-docker compose up -d
 cp .env.example .env
 ```
 
@@ -75,7 +73,7 @@ npm run dev -- search "这份文档的核心结论是什么？" --limit 5
 npm run dev -- ask "这个电阻的额定功率是多少？" --limit 5
 ```
 
-`ingest` 和 `search` 使用 Ollama 本地 Embedding；`ask` 先用 Ollama + pgvector 检索，再把命中的文本交给 `OPENAI_BASE_URL` 对应的 `/chat/completions`。因此中转站不需要支持 Embedding。
+`ingest` 和 `search` 使用 Ollama 本地 Embedding；`ask` 先用 Ollama + LanceDB 检索，再把命中的文本交给 `OPENAI_BASE_URL` 对应的 `/chat/completions`。因此中转站不需要支持 Embedding。
 
 检索结果以 JSON 输出，包含相似度分数、原文、来源路径和页码范围，可直接接到 RAG 的上下文组装阶段。
 
@@ -99,14 +97,14 @@ npm run dev -- ask "这个电阻的额定功率是多少？" --limit 5
 | `OPENAI_BASE_URL` | 空 | OpenAI 兼容服务地址 |
 | `OPENAI_CHAT_MODEL` | `gpt-5.5` | `ask` 使用的聊天模型 |
 | `EMBEDDING_MODEL` | `bge-m3` | 向量模型 |
-| `EMBEDDING_DIMENSIONS` | `1024` | 向量维度，最大 2000 以支持 pgvector HNSW |
-| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/rag` | PostgreSQL 连接串 |
+| `EMBEDDING_DIMENSIONS` | `1024` | 向量维度，必须与模型输出一致 |
+| `LANCEDB_PATH` | `data/lancedb` | LanceDB 本地数据目录 |
 | `CHUNK_SIZE` | `1000` | 每个 chunk 的目标字符数 |
 | `CHUNK_OVERLAP` | `150` | 相邻 chunk 重叠字符数 |
-| `EMBEDDING_BATCH_SIZE` | `64` | 每次 embedding 请求的 chunk 数量 |
+| `EMBEDDING_BATCH_SIZE` | Ollama 为 `1`，OpenAI 为 `64` | 每次 embedding 请求的 chunk 数量；低内存机器建议保持 `1` |
 | `OUTPUT_DIR` | `output` | 中间产物目录 |
 
-修改 `EMBEDDING_DIMENSIONS` 后，如果数据库中已经建表，需要删除本地数据卷后重建，或迁移 `rag_chunks.embedding` 的类型。程序启动时会检查数据库维度并在不一致时明确报错。
+修改 `EMBEDDING_DIMENSIONS` 后，如果 LanceDB 已经存在，需要删除 `data/lancedb` 后重新导入。程序启动时会检查已有向量维度并在不一致时明确报错。
 
 如果需要切回 OpenAI：
 
@@ -118,14 +116,14 @@ EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
 ```
 
-本地开发阶段若数据库已经以其他向量维度创建，且数据可以丢弃，可用 `docker compose down -v` 后再 `docker compose up -d` 重建。不同模型生成的向量不能混合检索。
+不同模型生成的向量不能混合检索。需要更换模型时，删除 `data/lancedb` 并重新执行 `ingest`。
 
-## 数据表
+## 本地向量库
 
-- `rag_documents`：来源、标题、文件哈希、页数和 PDF 元数据
-- `rag_chunks`：文本、页码、模型名和 `vector(n)` embedding
+- 数据保存在 `data/lancedb/`，无需 Docker 或 PostgreSQL。
+- `rag_chunks` 表保存文本、来源、页码、元数据、模型名和 embedding。
 
-同一路径的 PDF 再次导入时，文档记录会更新，旧 chunks 会在同一事务中删除并重建。向量列使用 cosine distance 的 HNSW 索引。
+同一路径的 PDF 再次导入时，旧 chunks 会删除并重建。检索使用 cosine distance。
 
 ## 生产使用建议
 
