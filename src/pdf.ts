@@ -6,6 +6,11 @@ import pdf from "pdf-parse";
 import { createWorker } from "tesseract.js";
 import type { ParsedDocument, PdfPage } from "./types.js";
 
+function tessdataPrefix(): string | undefined {
+  if (process.env.TESSDATA_PREFIX) return process.env.TESSDATA_PREFIX;
+  return undefined;
+}
+
 function normalizeText(text: string): string {
   return text
     .replace(/\r\n?/g, "\n")
@@ -61,7 +66,8 @@ export async function parsePdf(filePath: string): Promise<ParsedDocument> {
 async function ocrPdf(buffer: Buffer): Promise<PdfPage[]> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const document = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
-  const worker = await createWorker("chi_sim+eng");
+  const worker = await createWorker("chi_sim", 1);
+  await worker.reinitialize("chi_sim+eng");
   try {
     const pages: PdfPage[] = [];
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
