@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@lancedb/lancedb": "^0.31.0",
+    "@napi-rs/canvas": "^1.0.2",
     "commander": "^14.0.0",
     "dotenv": "^17.2.0",
     "express": "^5.2.1",
@@ -20,6 +21,8 @@
     "multer": "^2.2.0",
     "openai": "^5.10.0",
     "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^6.1.200",
+    "tesseract.js": "^7.0.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {

@@ -147,6 +147,7 @@ EMBEDDING_DIMENSIONS=1536
 - 将 `source_path` 换成对象存储 URL 或业务文档 ID，避免部署机器路径变化造成重复数据。
 - 大批量导入时可把解析/embedding/写库拆成队列任务，并加入 API 限流重试。
 - 扫描版 PDF 需要先接 OCR；当前解析器适用于含文本层的 PDF。
+- 扫描版 PDF 会自动通过 PDF.js + Tesseract.js 执行中英文 OCR；首次使用需要下载 OCR 语言模型，处理时间会较长。
 - 中文 token 数与字符数并非固定比例，若模型上下文控制要求严格，可接入对应模型的 tokenizer。
 
 ## 构建
