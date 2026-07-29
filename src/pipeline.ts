@@ -90,7 +90,8 @@ export async function ask(question: string, limit: number, config: AppConfig) {
     const chat = new ChatService({
       apiKey: config.openAiApiKey,
       baseUrl: config.openAiBaseUrl,
-      model: config.openAiChatModel
+      model: config.openAiChatModel,
+      ollamaBaseUrl: config.ollamaBaseUrl
     });
     const answer = await chat.answer(question, context);
     console.log(answer);

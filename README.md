@@ -45,7 +45,7 @@ ollama pull bge-m3
 `ask` 命令默认也走本地 Ollama，下载一个对话模型即可：
 
 ```bash
-ollama pull qwen3:4b
+ollama pull qwen2.5:1.5b
 ```
 
 确保 Ollama 正在运行，`.env.example` 中的默认配置即可直接使用：
@@ -57,7 +57,7 @@ EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIMENSIONS=1024
 
 OPENAI_BASE_URL=http://localhost:11434/v1
-OPENAI_CHAT_MODEL=qwen3:4b
+OPENAI_CHAT_MODEL=qwen2.5:1.5b
 ```
 
 如果暂时没有 Embedding API Key，可以只执行解析和切块。该命令不需要数据库，也不需要 `.env`：
