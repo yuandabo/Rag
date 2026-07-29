@@ -1,170 +1,218 @@
 # PDF RAG Pipeline
 
-一个用于构建 RAG 知识库的 Node.js / TypeScript 小项目：
+一个端到端的 **本地优先** PDF 检索增强生成（RAG）系统，用 Node.js / TypeScript 构建。把 PDF 变成可问答的知识库——支持扫描版 OCR、本地向量存储、多后端对话模型，并自带 Web 工作台。
+
+![RAG 工作台](public/ScreenShot_.png)
+
+## 核心特性
+
+- **PDF 解析**：原生文本层用 `pdf-parse` 提取；扫描版 / 图片型 PDF 自动走 PDF.js + Tesseract.js 中英文 OCR
+- **智能切块**：按目标字符数滑动窗口切块，优先在段落、句末、空格处断开，保留页码范围
+- **本地向量库**：基于 LanceDB，无需 Docker / PostgreSQL；数据落在 `data/lancedb/`
+- **Embedding 灵活可选**：默认走本地 Ollama `bge-m3`，也可切到任意 OpenAI 兼容 embedding 服务
+- **对话后端可插拔**：`CHAT_PROVIDER` 一行切换 `anthropic` / `openai` / `ollama`，适配各类中转站
+- **引用追溯**：每个回答都标注来源文件、页码范围、相似度分数
+- **Web 工作台 + 命令行 CLI**：既能可视化操作，也能脚本化批处理
+- **中间产物可观测**：每份 PDF 落盘 `document.md`、`document.json`、`chunks.json`，方便调试
+
+## 工作流
 
 ```text
-PDF -> Markdown + JSON -> Chunk -> Ollama Embedding -> LanceDB
+PDF ──┬─ pdf-parse (文本层) ─────────┐
+      └─ PDF.js + Tesseract.js (OCR) ─┘
+                ↓
+        Markdown + 按页文本
+                ↓
+          滑动窗口切块
+                ↓
+       Ollama bge-m3 Embedding
+                ↓
+           LanceDB 持久化
+                ↓
+     检索时：cosine 近邻 + 重排
+                ↓
+  组装上下文 → Chat 模型（Anthropic / OpenAI / Ollama）
+                ↓
+          附带引用来源的回答
 ```
-
-支持单个 PDF 或目录批量导入、保留中间产物、重复导入覆盖、本地文件向量存储，以及命令行语义检索。
 
 ## 环境要求
 
-- Node.js 20+
-- Ollama 本地模型，或 OpenAI/兼容 Embeddings API
+- **Node.js 20+**（推荐 22 LTS）
+- **Ollama**（用于本地 embedding，必装）
+  - 安装：https://ollama.com/
+  - 拉模型：`ollama pull bge-m3`
+- **Tesseract 语言包**（仅扫描版 PDF 需要）
+  - 项目根目录建 `tessdata/`，放入 `chi_sim.traineddata` 和 `eng.traineddata`
 
 ## 快速开始
 
 ```bash
 npm install
-cp .env.example .env
+cp .env.example .env       # Windows PowerShell: Copy-Item .env.example .env
+npm run web
 ```
 
-## Web 页面
+浏览器打开 http://127.0.0.1:3000 即可看到工作台。
 
-启动知识库工作台：
+> 截图所示界面分三栏：左侧知识库与上传、中间对话区、右侧引用来源。
+
+## Web 工作台功能
+
+启动：
 
 ```bash
 npm run web
 ```
 
-浏览器打开 `http://127.0.0.1:3000`。页面支持 PDF 上传入库、知识库概览、语义搜索、RAG 问答和引用来源查看。
+页面提供：
 
-Windows PowerShell 复制配置：
+1. **知识库概览**——文档数、切片数实时统计
+2. **PDF 上传**——拖入或选择文件，自动解析 → OCR（如需）→ 切块 → embedding → 入库
+3. **已入库文档列表**——显示文件标题、页数、切片数
+4. **知识问答模式**——输入问题，检索 Top-K 片段，调用对话模型生成带引用的回答
+5. **语义搜索模式**——只返回匹配片段，不调用对话模型，速度更快
+6. **引用来源面板**——每条来源展示相似度百分比、文件标题、页码范围、内容预览
 
-```powershell
-Copy-Item .env.example .env
-```
+所有请求都打到本机 Express 服务，再分别调用 Ollama（embedding）和配置的对话后端。
 
-默认配置使用免费的本地 Ollama `bge-m3`。先安装 [Ollama](https://ollama.com/)，再下载模型：
-
-```bash
-ollama pull bge-m3
-```
-
-`ask` 命令的对话模型支持三种后端，通过 `CHAT_PROVIDER` 切换：
-
-- `anthropic`（默认）：Anthropic 原生 `/v1/messages`，配合中转站使用
-- `openai`：OpenAI 兼容 `/chat/completions`（含 Ollama 的 `/v1` 兼容端点）
-- `ollama`：Ollama 原生 `/api/chat`
-
-确保 Ollama 正在运行，`.env.example` 中的默认配置即可直接使用：
-
-```dotenv
-EMBEDDING_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-EMBEDDING_MODEL=bge-m3
-EMBEDDING_DIMENSIONS=1024
-
-CHAT_PROVIDER=anthropic
-OPENAI_BASE_URL=https://claude.jlcops.com/api
-OPENAI_CHAT_MODEL=glm-5.2
-```
-
-如果暂时没有 Embedding API Key，可以只执行解析和切块。该命令不需要数据库，也不需要 `.env`：
+## 命令行 CLI
 
 ```bash
+# 只解析 + 切块，不入库（无需 Ollama / .env）
 npm run dev -- extract ./pdfs/example.pdf
-```
 
-输出位于 `output/<文件哈希前12位>/`，可以直接打开 `document.md`、`document.json` 和 `chunks.json` 查看。
-
-导入单个 PDF：
-
-```bash
+# 导入单个 PDF（解析 → 切块 → embedding → LanceDB）
 npm run dev -- ingest ./pdfs/example.pdf
-```
 
-递归导入目录中的所有 PDF：
-
-```bash
+# 递归导入整个目录
 npm run dev -- ingest ./pdfs
-```
 
-执行向量检索：
-
-```bash
+# 语义检索（返回 JSON，含分数、原文、来源、页码）
 npm run dev -- search "这份文档的核心结论是什么？" --limit 5
-```
 
-检索知识库并通过 OpenAI 兼容中转站生成最终答案：
-
-```bash
+# RAG 问答（检索 + 对话模型生成答案）
 npm run dev -- ask "这个电阻的额定功率是多少？" --limit 5
-```
 
-`ingest` 和 `search` 使用 Ollama 本地 Embedding；`ask` 先用 Ollama + LanceDB 检索，再把命中的文本交给 `OPENAI_BASE_URL` 对应的 `/chat/completions`（默认指向 Ollama 的 OpenAI 兼容端点，也可换成任何 OpenAI 兼容服务）。
-
-查看 LanceDB 中已存的文档和 chunks（不调用 Ollama）：
-
-```bash
+# 查看库里已有的文档和切片
 npm run dev -- inspect --limit 10
 npm run dev -- inspect --limit 5 --vectors
 ```
-
-检索结果以 JSON 输出，包含相似度分数、原文、来源路径和页码范围，可直接接到 RAG 的上下文组装阶段。
 
 ## 中间产物
 
 每份 PDF 会在 `output/<文件哈希前12位>/` 下生成：
 
-- `document.md`：按页组织的 Markdown
-- `document.json`：文档、页级文本和 PDF 元数据
-- `chunks.json`：切块文本、页码范围、字符长度估算出的 token 数
+| 文件 | 内容 |
+| --- | --- |
+| `document.md` | 按页组织的 Markdown，便于人工浏览 |
+| `document.json` | 文档元数据 + 页级纯文本 + PDF info 字段 |
+| `chunks.json` | 切块文本、页码范围、字符长度估算的 token 数 |
 
-这些文件不会包含 embedding，避免输出目录体积快速膨胀；向量直接写入数据库。
+向量不写到这里，避免目录膨胀；embedding 直接进 LanceDB。
 
 ## 配置
+
+通过 `.env` 配置，所有字段在 `.env.example` 中都有默认值和说明。
+
+### 对话后端切换
+
+`CHAT_PROVIDER` 决定 `ask` / `/api/ask` 调用哪种 API：
+
+| 取值 | 端点 | 适用场景 |
+| --- | --- | --- |
+| `anthropic` | `<base>/v1/messages` | Anthropic 原生协议，如 `https://claude.jlcops.com/api` |
+| `openai` | `<base>/chat/completions` | OpenAI 官方或任意兼容中转站，含 Ollama 的 `/v1` 兼容端点 |
+| `ollama` | `<ollama>/api/chat` | 纯本地，无需任何外部服务 |
+
+### 完整变量表
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `EMBEDDING_PROVIDER` | `ollama` | `ollama` 或 `openai` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 服务地址 |
 | `CHAT_PROVIDER` | `anthropic` | `ask` 的对话后端：`anthropic` / `openai` / `ollama` |
-| `OPENAI_API_KEY` | 空 | 中转站/服务商的 API key |
-| `OPENAI_BASE_URL` | 空 | 对话服务地址（Anthropic 填到 `/api`，OpenAI 兼容填到 `/v1`） |
-| `OPENAI_CHAT_MODEL` | `glm-5.2` | `ask` 使用的聊天模型 |
+| `OPENAI_API_KEY` | 空 | 中转站 / 服务商的 API key（本地 Ollama 留空） |
+| `OPENAI_BASE_URL` | `https://claude.jlcops.com/api` | 对话服务地址（Anthropic 填到 `/api`，OpenAI 兼容填到 `/v1`） |
+| `OPENAI_CHAT_MODEL` | `glm-5.2` | 对话模型名 |
 | `EMBEDDING_MODEL` | `bge-m3` | 向量模型 |
 | `EMBEDDING_DIMENSIONS` | `1024` | 向量维度，必须与模型输出一致 |
-| `LANCEDB_PATH` | `data/lancedb` | LanceDB 本地数据目录 |
+| `LANCEDB_PATH` | `data/lancedb` | LanceDB 数据目录 |
 | `CHUNK_SIZE` | `1000` | 每个 chunk 的目标字符数 |
 | `CHUNK_OVERLAP` | `150` | 相邻 chunk 重叠字符数 |
-| `EMBEDDING_BATCH_SIZE` | Ollama 为 `1`，OpenAI 为 `64` | 每次 embedding 请求的 chunk 数量；低内存机器建议保持 `1` |
+| `EMBEDDING_BATCH_SIZE` | Ollama `1`，OpenAI `64` | 每次 embedding 请求的 chunk 数量；内存紧张保持 `1` |
 | `OUTPUT_DIR` | `output` | 中间产物目录 |
+| `TESSDATA_PREFIX` | `./tessdata` | Tesseract 语言模型目录（仅扫描版 PDF 需要） |
 
-修改 `EMBEDDING_DIMENSIONS` 后，如果 LanceDB 已经存在，需要删除 `data/lancedb` 后重新导入。程序启动时会检查已有向量维度并在不一致时明确报错。
+> 修改 `EMBEDDING_DIMENSIONS` 后必须删除 `data/lancedb/` 重新导入。程序启动时会校验已存向量维度，不一致会立即报错。
 
-如果需要切回 OpenAI：
+### 切换到 OpenAI Embedding
 
 ```dotenv
 EMBEDDING_PROVIDER=openai
 OPENAI_API_KEY=sk-your-key
-OPENAI_BASE_URL=
+OPENAI_BASE_URL=https://api.openai.com/v1
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
 ```
 
-不同模型生成的向量不能混合检索。需要更换模型时，删除 `data/lancedb` 并重新执行 `ingest`。
+### 切换对话到本地 Ollama（无外网依赖）
+
+```dotenv
+CHAT_PROVIDER=ollama
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_CHAT_MODEL=qwen2.5:7b
+```
 
 ## 本地向量库
 
-- 数据保存在 `data/lancedb/`，无需 Docker 或 PostgreSQL。
-- `rag_chunks` 表保存文本、来源、页码、元数据、模型名和 embedding。
-
-同一路径的 PDF 再次导入时，旧 chunks 会删除并重建。检索使用 cosine distance。
+- 数据保存在 `data/lancedb/`，单表名 `rag_chunks`
+- 字段：`id`、`documentId`、`sourcePath`、`fileName`、`title`、`contentHash`、`pageCount`、`chunkIndex`、`content`、`tokenEstimate`、`pageStart`、`pageEnd`、`metadata`、`embeddingModel`、`vector`
+- 同一路径重复 `ingest` 会先删后插，避免重复
+- 检索使用 cosine distance
 
 ## 生产使用建议
 
-- 将 `source_path` 换成对象存储 URL 或业务文档 ID，避免部署机器路径变化造成重复数据。
-- 大批量导入时可把解析/embedding/写库拆成队列任务，并加入 API 限流重试。
-- 扫描版 PDF 需要先接 OCR；当前解析器适用于含文本层的 PDF。
-- 扫描版 PDF 会自动通过 PDF.js + Tesseract.js 执行中英文 OCR；首次使用需要下载 OCR 语言模型，处理时间会较长。
-- 中文 token 数与字符数并非固定比例，若模型上下文控制要求严格，可接入对应模型的 tokenizer。
+- `source_path` 在分布式部署时换成对象存储 URL 或业务文档 ID，避免机器路径差异导致重复入库
+- 大批量导入拆成队列任务，并对 embedding / chat API 加限流和重试
+- 中文 token 数与字符数非固定比例，对上下文敏感的场景建议接入精确 tokenizer
+- OCR 处理耗时与页数和 `scale` 相关；CPU 紧张时可在 `src/pdf.ts` 调��� `scale: 2.2`
 
-## 构建
+## 构建与类型检查
 
 ```bash
-npm run typecheck
-npm run build
+npm run typecheck     # 仅类型检查
+npm run build         # 编译到 dist/
 npm start -- search "测试问题"
 ```
+
+## 项目结构
+
+```text
+src/
+  cli.ts           命令行入口（extract / ingest / search / ask / inspect）
+  web.ts           Express Web 服务（/api/library /api/ingest /api/search /api/ask）
+  pipeline.ts      编排：解析 → 切块 → embedding → 入库 / 检索
+  pdf.ts           PDF 解析 + OCR fallback
+  chunk.ts         滑动窗口切块
+  embedding.ts     Embedding 服务（ollama / openai）
+  chat.ts          Chat 服务（anthropic / openai / ollama）
+  db.ts            LanceDB 封装
+  output.ts        中间产物写盘
+  config.ts        zod 校验的环境变量
+  types.ts         共享类型
+public/
+  index.html       Web 工作台页面
+  app.js           前端交互
+  styles.css       样式
+data/
+  uploads/         上传的 PDF 原文件
+  lancedb/         向量库
+output/
+  <hash>/          每份 PDF 的中间产物
+tessdata/          Tesseract 语言模型（gitignore）
+```
+
+## 许可
+
+MIT
