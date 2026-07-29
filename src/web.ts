@@ -38,7 +38,10 @@ app.get("/api/library", async (_request, response, next) => {
 app.post("/api/ingest", upload.single("pdf"), async (request, response, next) => {
   try {
     if (!request.file) throw new Error("请选择 PDF 文件");
-    const target = path.join(uploadDir, request.file.originalname);
+    // multer 默认按 latin1 处理文件名，需还原为 UTF-8
+    const originalName = Buffer.from(request.file.originalname, "latin1").toString("utf-8");
+    const safeName = originalName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").slice(0, 200);
+    const target = path.join(uploadDir, safeName);
     await import("node:fs/promises").then(({ rename }) => rename(request.file!.path, target));
     response.json({ documents: await ingest(target, config) });
   } catch (error) {

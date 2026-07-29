@@ -8,7 +8,6 @@ export class ChatService {
   constructor(private readonly options: ChatOptions) {}
 
   async answer(question: string, context: string): Promise<string> {
-    if (!this.options.apiKey) throw new Error("OPENAI_API_KEY is required for the ask command");
     if (!this.options.baseUrl) throw new Error("OPENAI_BASE_URL is required for the ask command");
     const request = {
       model: this.options.model,
@@ -23,14 +22,13 @@ export class ChatService {
         }
       ]
     };
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.options.apiKey) headers.Authorization = `Bearer ${this.options.apiKey}`;
     let response: Response | undefined;
     for (let attempt = 1; attempt <= 3; attempt++) {
       response = await fetch(`${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.options.apiKey}`,
-          "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify(request),
         signal: AbortSignal.timeout(120000)
       });

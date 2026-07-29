@@ -42,6 +42,12 @@ Copy-Item .env.example .env
 ollama pull bge-m3
 ```
 
+`ask` 命令默认也走本地 Ollama，下载一个对话模型即可：
+
+```bash
+ollama pull qwen3:4b
+```
+
 确保 Ollama 正在运行，`.env.example` 中的默认配置即可直接使用：
 
 ```dotenv
@@ -49,6 +55,9 @@ EMBEDDING_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIMENSIONS=1024
+
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_CHAT_MODEL=qwen3:4b
 ```
 
 如果暂时没有 Embedding API Key，可以只执行解析和切块。该命令不需要数据库，也不需要 `.env`：
@@ -83,7 +92,7 @@ npm run dev -- search "这份文档的核心结论是什么？" --limit 5
 npm run dev -- ask "这个电阻的额定功率是多少？" --limit 5
 ```
 
-`ingest` 和 `search` 使用 Ollama 本地 Embedding；`ask` 先用 Ollama + LanceDB 检索，再把命中的文本交给 `OPENAI_BASE_URL` 对应的 `/chat/completions`。因此中转站不需要支持 Embedding。
+`ingest` 和 `search` 使用 Ollama 本地 Embedding；`ask` 先用 Ollama + LanceDB 检索，再把命中的文本交给 `OPENAI_BASE_URL` 对应的 `/chat/completions`（默认指向 Ollama 的 OpenAI 兼容端点，也可换成任何 OpenAI 兼容服务）。
 
 查看 LanceDB 中已存的文档和 chunks（不调用 Ollama）：
 
