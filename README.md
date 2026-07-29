@@ -42,11 +42,11 @@ Copy-Item .env.example .env
 ollama pull bge-m3
 ```
 
-`ask` 命令默认也走本地 Ollama，下载一个对话模型即可：
+`ask` 命令的对话模型支持三种后端，通过 `CHAT_PROVIDER` 切换：
 
-```bash
-ollama pull qwen2.5:1.5b
-```
+- `anthropic`（默认）：Anthropic 原生 `/v1/messages`，配合中转站使用
+- `openai`：OpenAI 兼容 `/chat/completions`（含 Ollama 的 `/v1` 兼容端点）
+- `ollama`：Ollama 原生 `/api/chat`
 
 确保 Ollama 正在运行，`.env.example` 中的默认配置即可直接使用：
 
@@ -56,8 +56,9 @@ OLLAMA_BASE_URL=http://localhost:11434
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIMENSIONS=1024
 
-OPENAI_BASE_URL=http://localhost:11434/v1
-OPENAI_CHAT_MODEL=qwen2.5:1.5b
+CHAT_PROVIDER=anthropic
+OPENAI_BASE_URL=https://claude.jlcops.com/api
+OPENAI_CHAT_MODEL=glm-5.2
 ```
 
 如果暂时没有 Embedding API Key，可以只执行解析和切块。该命令不需要数据库，也不需要 `.env`：
@@ -119,9 +120,10 @@ npm run dev -- inspect --limit 5 --vectors
 | --- | --- | --- |
 | `EMBEDDING_PROVIDER` | `ollama` | `ollama` 或 `openai` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 服务地址 |
-| `OPENAI_API_KEY` | 空 | 使用 `openai` provider 时必填 |
-| `OPENAI_BASE_URL` | 空 | OpenAI 兼容服务地址 |
-| `OPENAI_CHAT_MODEL` | `gpt-5.5` | `ask` 使用的聊天模型 |
+| `CHAT_PROVIDER` | `anthropic` | `ask` 的对话后端：`anthropic` / `openai` / `ollama` |
+| `OPENAI_API_KEY` | 空 | 中转站/服务商的 API key |
+| `OPENAI_BASE_URL` | 空 | 对话服务地址（Anthropic 填到 `/api`，OpenAI 兼容填到 `/v1`） |
+| `OPENAI_CHAT_MODEL` | `glm-5.2` | `ask` 使用的聊天模型 |
 | `EMBEDDING_MODEL` | `bge-m3` | 向量模型 |
 | `EMBEDDING_DIMENSIONS` | `1024` | 向量维度，必须与模型输出一致 |
 | `LANCEDB_PATH` | `data/lancedb` | LanceDB 本地数据目录 |
